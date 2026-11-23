@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+node_modules/
+*.log
+.env*
+web_token.txt
+history.json
+memory.json
+reminders.json
+telegram_users.json
+voices/*
+!voices/README.txt
