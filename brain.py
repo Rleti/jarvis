@@ -78,6 +78,44 @@ FORCED = [
     (r"(майн|minecraft)\w*\W+(\w+\W+){0,6}?(зайд|зайти|заходи|подключ|присоедин|войди|войти)", "minecraft_join", {}),
 ]
 
+# Однозначные одиночные команды можно выполнить сразу.
+DIRECT_COMMANDS = (
+    (r"(?:включи|запусти|возобнови|поставь) музыку|(?:продолжи|возобнови) воспроизведение|пауза|поставь музыку на паузу",
+     "media_control", {"action": "play_pause"}),
+    (r"(?:следующий трек|следующая песня|переключи на следующий трек)", "media_control", {"action": "next"}),
+    (r"(?:предыдущий трек|предыдущая песня|верни предыдущий трек)", "media_control", {"action": "previous"}),
+    (r"(?:какая|сколько) (?:сейчас )?громкость|покажи громкость", "get_volume", {}),
+    (r"(?:поставь|установи|сделай) громкость (?:на )?(?P<percent>\d{1,3})(?:\s*(?:%|процент(?:а|ов)?))?",
+     "set_volume", {}),
+    (r"что (?:у меня |сейчас )?на экране", "look_at_screen", {}),
+    (r"(?:покажи|перечисли) (?:мои )?игры(?: в steam)?|какие у меня игры", "list_games", {}),
+    (r"(?:покажи|перечисли) (?:мои )?(?:таймеры|напоминания)|какие у меня напоминания", "list_reminders", {}),
+    (r"(?:поставь |установи )?таймер на (?P<minutes>\d+(?:[.,]\d+)?) минут(?:у|ы)?", "set_timer", {}),
+    (r"(?:поставь |установи )?будильник (?:на|в) (?P<time_hhmm>\d{1,2}:\d{2})", "set_alarm", {}),
+    (r"(?:сделай|сними) скриншот(?: экрана)?", "take_screenshot", {}),
+    (r"найди файл (?P<name>.+)", "find_files", {}),
+    (r"(?:открой|запусти) (?:приложение |программу )(?P<name>[\w -]+)", "open_app", {}),
+    (r"запомни(?:,? что)? (?P<fact>.+)", "remember_fact", {}),
+    (r"забудь (?:факт о|что|про) (?P<about>.+)", "forget_fact", {}),
+    (r"(?:покажи |проверь )?состояние (?:системы|компьютера)|как там видеокарта", "system_status", {}),
+)
+
+
+def direct_command(text):
+    command = re.sub(r"^пожалуйста[,\s]+|[,\s]+пожалуйста$", "", text.strip().rstrip(".!?"), flags=re.I).strip()
+    for pattern, name, defaults in DIRECT_COMMANDS:
+        match = re.fullmatch(pattern, command, re.I)
+        if match:
+            args = defaults | match.groupdict()
+            if "percent" in args:
+                args["percent"] = int(args["percent"])
+                if args["percent"] > 100:
+                    return None
+            if "minutes" in args:
+                args["minutes"] = float(args["minutes"].replace(",", "."))
+            return name, args
+    return None
+
 
 def keep_alive(value):
     """Ollama принимает число секунд (-1 — навсегда, 0 — сразу) или строку с единицами ("10m").
@@ -280,17 +318,22 @@ class Brain:
             self.history = []
         self.last_time = time.time()
         self.history.append({"role": "user", "content": text})
-        if "weather" in self.by_name and re.search(r"\b(?:погод\w*|прогноз\w*|дождь|зонт)\b", text, re.I):
+        command = direct_command(text)
+        if command is None and "weather" in self.by_name and re.search(r"\b(?:погод\w*|прогноз\w*|дождь|зонт)\b", text, re.I):
             location = re.search(
                 r"\b(?:в|во)\s+([\w-]+(?:\s+(?!(?:сейчас|сегодня|завтра|на|пожалуйста|для)\b)[\w-]+)*)",
                 text, re.I,
             )
-            city = location[1] if location else ""
+            command = ("weather", {"city": location[1] if location else ""})
+        if command and command[0] in self.by_name:
+            name, args = command
+            log.info("Прямой вызов: %s(%s)", name, args)
             try:
-                answer = self.by_name["weather"](city=city)
-            except (OSError, ValueError, KeyError, TypeError, IndexError):
-                log.exception("Ошибка запроса погоды")
-                answer = "Сервис погоды не ответил. Попробуй ещё раз чуть позже."
+                answer = str(self.by_name[name](**args))
+            except Exception:
+                log.exception("Ошибка выполнения %s", name)
+                answer = ("Сервис погоды не ответил. Попробуй ещё раз чуть позже." if name == "weather"
+                          else "Не удалось выполнить команду. Подробности в журнале Jarvis.")
             self.history.append({"role": "assistant", "content": answer})
             self._trim()
             self._save_history()

@@ -296,7 +296,12 @@ def media_control(action: str) -> str:
     if action not in keys:
         return f"Неизвестное действие {action}"
     pyautogui.press(keys[action])
-    return "Готово"
+    return {
+        "play_pause": "Отправила команду воспроизведения. Нужен открытый плеер или вкладка с музыкой.",
+        "next": "Отправила команду «следующий трек».",
+        "previous": "Отправила команду «предыдущий трек».",
+        "mute": "Отправила команду переключения звука.",
+    }[action]
 
 
 def type_text(text: str) -> str:
