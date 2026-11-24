@@ -502,7 +502,9 @@ def weather(city: str = "") -> str:
     Args:
         city: город; пусто — город пользователя по умолчанию
     """
-    city = city or config.CITY
+    city = city.strip() or config.CITY
+    city = {"москве": "Москва", "питере": "Санкт-Петербург",
+            "санкт-петербурге": "Санкт-Петербург", "казани": "Казань"}.get(city.casefold(), city)
     geo = _get_json("https://geocoding-api.open-meteo.com/v1/search?count=1&language=ru&name="
                     + urllib.parse.quote(city))
     if not geo.get("results"):

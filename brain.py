@@ -73,8 +73,6 @@ THINK_RX = r"\b(подумай|поразмысли|реши|решить|пос
 # (регулярка по тексту пользователя, функция, аргументы)
 _MC = r"(майн|minecraft|майнкрафт|мир|сервер|игру ко мне)"
 FORCED = [
-    # погода (город по умолчанию; если город назван — его выберет сама модель)
-    (r"(погод|дожд|снег\s+ид|холодно|жарко|температур|градус|зонт|прогноз)", "weather", {}),
     (r"(зайд|зайти|заходи|зайдёшь|зайдешь|подключи|подключ|присоедин|войди|войти|залет|залеза|запрыг)\w*\W+(\w+\W+){0,6}?" + _MC,
      "minecraft_join", {}),
     (r"(майн|minecraft)\w*\W+(\w+\W+){0,6}?(зайд|зайти|заходи|подключ|присоедин|войди|войти)", "minecraft_join", {}),
@@ -262,8 +260,6 @@ class Brain:
         for rx, name, args in FORCED:
             if not re.search(rx, t):
                 continue
-            if name == "weather" and re.search(r"\b(в|во)\s+[А-ЯЁA-Z]", text):
-                continue                                     # «погода в Питере» — город решит модель
             if name in self.by_name:
                 log.info("Вызов (по ключевым словам): %s(%s)", name, args)
                 try:
@@ -284,6 +280,23 @@ class Brain:
             self.history = []
         self.last_time = time.time()
         self.history.append({"role": "user", "content": text})
+        if "weather" in self.by_name and re.search(r"\b(?:погод\w*|прогноз\w*|дождь|зонт)\b", text, re.I):
+            location = re.search(
+                r"\b(?:в|во)\s+([\w-]+(?:\s+(?!(?:сейчас|сегодня|завтра|на|пожалуйста|для)\b)[\w-]+)*)",
+                text, re.I,
+            )
+            city = location[1] if location else ""
+            try:
+                answer = self.by_name["weather"](city=city)
+            except (OSError, ValueError, KeyError, TypeError, IndexError):
+                log.exception("Ошибка запроса погоды")
+                answer = "Сервис погоды не ответил. Попробуй ещё раз чуть позже."
+            self.history.append({"role": "assistant", "content": answer})
+            self._trim()
+            self._save_history()
+            if on_sentence:
+                on_sentence(answer)
+            return answer
         self._forced_tool(text)
         think = bool(re.search(THINK_RX, text.lower())) and config.OLLAMA_THINK is not None
         if think:
